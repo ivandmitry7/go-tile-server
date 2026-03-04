@@ -9,7 +9,23 @@ import (
 	"testing"
 
 	"go-tile-server/downloader"
+
+	"github.com/gin-gonic/gin"
 )
+
+func init() {
+	gin.SetMode(gin.TestMode)
+}
+
+func ginContext(w *httptest.ResponseRecorder, method, url string, body string) *gin.Context {
+	c, _ := gin.CreateTestContext(w)
+	if body != "" {
+		c.Request = httptest.NewRequest(method, url, strings.NewReader(body))
+	} else {
+		c.Request = httptest.NewRequest(method, url, nil)
+	}
+	return c
+}
 
 // --- HandleCount ---
 
@@ -17,20 +33,19 @@ func TestHandleCount_Valid(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	body := `{"polygon":[{"lat":10,"lng":100},{"lat":10,"lng":110},{"lat":20,"lng":110},{"lat":20,"lng":100}],"zoom_min":5,"zoom_max":5}`
-	req := httptest.NewRequest("POST", "/api/count", strings.NewReader(body))
 	w := httptest.NewRecorder()
-
-	h.HandleCount(w, req)
+	c := ginContext(w, "POST", "/api/count",
+		`{"polygon":[{"lat":10,"lng":100},{"lat":10,"lng":110},{"lat":20,"lng":110},{"lat":20,"lng":100}],"zoom_min":5,"zoom_max":5}`)
+	h.HandleCount(c)
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]int64
+	var resp map[string]interface{}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["count"] <= 0 {
-		t.Errorf("expected positive count, got %d", resp["count"])
+	if resp["count"].(float64) <= 0 {
+		t.Errorf("expected positive count, got %v", resp["count"])
 	}
 }
 
@@ -38,10 +53,9 @@ func TestHandleCount_InvalidJSON(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("POST", "/api/count", strings.NewReader("{invalid"))
 	w := httptest.NewRecorder()
-
-	h.HandleCount(w, req)
+	c := ginContext(w, "POST", "/api/count", "{invalid")
+	h.HandleCount(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -52,11 +66,10 @@ func TestHandleCount_TooFewPoints(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	body := `{"polygon":[{"lat":10,"lng":100},{"lat":10,"lng":110}],"zoom_min":5,"zoom_max":5}`
-	req := httptest.NewRequest("POST", "/api/count", strings.NewReader(body))
 	w := httptest.NewRecorder()
-
-	h.HandleCount(w, req)
+	c := ginContext(w, "POST", "/api/count",
+		`{"polygon":[{"lat":10,"lng":100},{"lat":10,"lng":110}],"zoom_min":5,"zoom_max":5}`)
+	h.HandleCount(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -69,9 +82,9 @@ func TestHandleDownload_InvalidJSON(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("POST", "/api/download", strings.NewReader("bad"))
 	w := httptest.NewRecorder()
-	h.HandleDownload(w, req)
+	c := ginContext(w, "POST", "/api/download", "bad")
+	h.HandleDownload(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -82,10 +95,10 @@ func TestHandleDownload_TooFewPoints(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	body := `{"polygon":[{"lat":1,"lng":1}],"zoom_min":1,"zoom_max":1}`
-	req := httptest.NewRequest("POST", "/api/download", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	h.HandleDownload(w, req)
+	c := ginContext(w, "POST", "/api/download",
+		`{"polygon":[{"lat":1,"lng":1}],"zoom_min":1,"zoom_max":1}`)
+	h.HandleDownload(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -107,9 +120,9 @@ func TestHandleDownload_InvalidZoom(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/api/download", strings.NewReader(tt.body))
 			w := httptest.NewRecorder()
-			h.HandleDownload(w, req)
+			c := ginContext(w, "POST", "/api/download", tt.body)
+			h.HandleDownload(c)
 			if w.Code != 400 {
 				t.Errorf("expected 400, got %d", w.Code)
 			}
@@ -123,9 +136,9 @@ func TestHandleCancel_MissingTaskID(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("GET", "/api/cancel", nil)
 	w := httptest.NewRecorder()
-	h.HandleCancel(w, req)
+	c := ginContext(w, "GET", "/api/cancel", "")
+	h.HandleCancel(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -136,9 +149,9 @@ func TestHandleCancel_TaskNotFound(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("GET", "/api/cancel?task_id=nonexistent", nil)
 	w := httptest.NewRecorder()
-	h.HandleCancel(w, req)
+	c := ginContext(w, "GET", "/api/cancel?task_id=nonexistent", "")
+	h.HandleCancel(c)
 
 	if w.Code != 404 {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -151,9 +164,9 @@ func TestHandleTasks_Empty(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("GET", "/api/tasks", nil)
 	w := httptest.NewRecorder()
-	h.HandleTasks(w, req)
+	c := ginContext(w, "GET", "/api/tasks", "")
+	h.HandleTasks(c)
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -172,9 +185,9 @@ func TestHandleProgress_MissingTaskID(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("GET", "/api/progress", nil)
 	w := httptest.NewRecorder()
-	h.HandleProgress(w, req)
+	c := ginContext(w, "GET", "/api/progress", "")
+	h.HandleProgress(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -185,9 +198,9 @@ func TestHandleProgress_TaskNotFound(t *testing.T) {
 	m := downloader.NewManager(t.TempDir())
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("GET", "/api/progress?task_id=nope", nil)
 	w := httptest.NewRecorder()
-	h.HandleProgress(w, req)
+	c := ginContext(w, "GET", "/api/progress?task_id=nope", "")
+	h.HandleProgress(c)
 
 	if w.Code != 404 {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -201,9 +214,9 @@ func TestHandleDedup(t *testing.T) {
 	m := downloader.NewManager(dir)
 	h := &APIHandler{Manager: m}
 
-	req := httptest.NewRequest("GET", "/api/dedup", nil)
 	w := httptest.NewRecorder()
-	h.HandleDedup(w, req)
+	c := ginContext(w, "GET", "/api/dedup", "")
+	h.HandleDedup(c)
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -218,53 +231,59 @@ func TestHandleDedup(t *testing.T) {
 
 // --- TileHandler ---
 
-func TestTileHandler_ServeHTTP_NotFound(t *testing.T) {
-	h := &TileHandler{TileDir: t.TempDir()}
+func TestServeTile_NotFound(t *testing.T) {
+	h := NewTileHandler(t.TempDir(), 1024*1024)
 
-	req := httptest.NewRequest("GET", "/tiles/1/0/0.png", nil)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/tiles/1/0/0.png", nil)
+	c.Params = gin.Params{
+		{Key: "z", Value: "1"},
+		{Key: "x", Value: "0"},
+		{Key: "filename", Value: "0.png"},
+	}
+	h.ServeTile(c)
 
 	if w.Code != 404 {
 		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
 
-func TestTileHandler_ServeHTTP_InvalidPath(t *testing.T) {
-	h := &TileHandler{TileDir: t.TempDir()}
+func TestServeTile_InvalidPath(t *testing.T) {
+	h := NewTileHandler(t.TempDir(), 1024*1024)
 
-	tests := []struct {
-		name string
-		path string
-	}{
-		{"too few parts", "/tiles/1/0"},
-		{"invalid zoom", "/tiles/abc/0/0.png"},
-		{"invalid x", "/tiles/1/abc/0.png"},
-		{"invalid y", "/tiles/1/0/abc.png"},
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/tiles/1/0/0.txt", nil)
+	c.Params = gin.Params{
+		{Key: "z", Value: "1"},
+		{Key: "x", Value: "0"},
+		{Key: "filename", Value: "0.txt"},
 	}
+	h.ServeTile(c)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-			if w.Code != 400 {
-				t.Errorf("expected 400 for %s, got %d", tt.path, w.Code)
-			}
-		})
+	if w.Code != 400 {
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 
-func TestTileHandler_ServeHTTP_Found(t *testing.T) {
+func TestServeTile_Found(t *testing.T) {
 	dir := t.TempDir()
 	tilePath := filepath.Join(dir, "5", "10", "15.png")
 	os.MkdirAll(filepath.Dir(tilePath), 0755)
 	os.WriteFile(tilePath, []byte("fake png"), 0644)
 
-	h := &TileHandler{TileDir: dir}
-	req := httptest.NewRequest("GET", "/tiles/5/10/15.png", nil)
+	h := NewTileHandler(dir, 1024*1024)
+
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/tiles/5/10/15.png", nil)
+	c.Params = gin.Params{
+		{Key: "z", Value: "5"},
+		{Key: "x", Value: "10"},
+		{Key: "filename", Value: "15.png"},
+	}
+	h.ServeTile(c)
 
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -274,14 +293,50 @@ func TestTileHandler_ServeHTTP_Found(t *testing.T) {
 	}
 }
 
+func TestServeTile_CacheHit(t *testing.T) {
+	dir := t.TempDir()
+	tilePath := filepath.Join(dir, "1", "0", "0.png")
+	os.MkdirAll(filepath.Dir(tilePath), 0755)
+	os.WriteFile(tilePath, []byte("tile data"), 0644)
+
+	h := NewTileHandler(dir, 1024*1024)
+
+	// First request — disk read + cache put
+	w1 := httptest.NewRecorder()
+	c1, _ := gin.CreateTestContext(w1)
+	c1.Request = httptest.NewRequest("GET", "/tiles/1/0/0.png", nil)
+	c1.Params = gin.Params{{Key: "z", Value: "1"}, {Key: "x", Value: "0"}, {Key: "filename", Value: "0.png"}}
+	h.ServeTile(c1)
+
+	if w1.Code != 200 {
+		t.Fatalf("first request: expected 200, got %d", w1.Code)
+	}
+
+	// Delete file — cache should still serve
+	os.Remove(tilePath)
+
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	c2.Request = httptest.NewRequest("GET", "/tiles/1/0/0.png", nil)
+	c2.Params = gin.Params{{Key: "z", Value: "1"}, {Key: "x", Value: "0"}, {Key: "filename", Value: "0.png"}}
+	h.ServeTile(c2)
+
+	if w2.Code != 200 {
+		t.Errorf("cached request: expected 200, got %d", w2.Code)
+	}
+	if w2.Body.String() != "tile data" {
+		t.Errorf("expected cached data, got %q", w2.Body.String())
+	}
+}
+
 // --- HandleTileSize ---
 
 func TestHandleTileSize_Empty(t *testing.T) {
-	h := &TileHandler{TileDir: t.TempDir()}
+	h := NewTileHandler(t.TempDir(), 1024*1024)
 
-	req := httptest.NewRequest("GET", "/api/tile-size", nil)
 	w := httptest.NewRecorder()
-	h.HandleTileSize(w, req)
+	c := ginContext(w, "GET", "/api/tile-size", "")
+	h.HandleTileSize(c)
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -299,10 +354,11 @@ func TestHandleTileSize_WithFiles(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "1", "0"), 0755)
 	os.WriteFile(filepath.Join(dir, "1", "0", "0.png"), []byte("12345"), 0644)
 
-	h := &TileHandler{TileDir: dir}
-	req := httptest.NewRequest("GET", "/api/tile-size", nil)
+	h := NewTileHandler(dir, 1024*1024)
+
 	w := httptest.NewRecorder()
-	h.HandleTileSize(w, req)
+	c := ginContext(w, "GET", "/api/tile-size", "")
+	h.HandleTileSize(c)
 
 	var resp map[string]int64
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -314,14 +370,49 @@ func TestHandleTileSize_WithFiles(t *testing.T) {
 	}
 }
 
+func TestHandleTileSize_Cached(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "1", "0"), 0755)
+	os.WriteFile(filepath.Join(dir, "1", "0", "0.png"), []byte("12345"), 0644)
+
+	h := NewTileHandler(dir, 1024*1024)
+
+	// First call computes
+	w1 := httptest.NewRecorder()
+	h.HandleTileSize(ginContext(w1, "GET", "/api/tile-size", ""))
+
+	// Add file
+	os.WriteFile(filepath.Join(dir, "1", "0", "1.png"), []byte("abc"), 0644)
+
+	// Second call returns cached
+	w2 := httptest.NewRecorder()
+	h.HandleTileSize(ginContext(w2, "GET", "/api/tile-size", ""))
+
+	var resp map[string]int64
+	json.NewDecoder(w2.Body).Decode(&resp)
+	if resp["files"] != 1 {
+		t.Errorf("expected cached 1 file, got %d", resp["files"])
+	}
+
+	// Invalidate and re-check
+	h.InvalidateSizeCache()
+	w3 := httptest.NewRecorder()
+	h.HandleTileSize(ginContext(w3, "GET", "/api/tile-size", ""))
+
+	json.NewDecoder(w3.Body).Decode(&resp)
+	if resp["files"] != 2 {
+		t.Errorf("expected 2 files after invalidation, got %d", resp["files"])
+	}
+}
+
 // --- DrawingsHandler ---
 
 func TestDrawingsHandler_ListEmpty(t *testing.T) {
 	h := &DrawingsHandler{Dir: t.TempDir()}
 
-	req := httptest.NewRequest("GET", "/api/drawings", nil)
 	w := httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c := ginContext(w, "GET", "/api/drawings", "")
+	h.HandleGetDrawings(c)
 
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -339,19 +430,19 @@ func TestDrawingsHandler_SaveAndLoad(t *testing.T) {
 	h := &DrawingsHandler{Dir: dir}
 
 	// Save
-	body := `{"name":"test-project","polygon":[{"lat":1,"lng":2}]}`
-	req := httptest.NewRequest("POST", "/api/drawings", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c := ginContext(w, "POST", "/api/drawings",
+		`{"name":"test-project","polygon":[{"lat":1,"lng":2}]}`)
+	h.HandlePostDrawings(c)
 
 	if w.Code != 200 {
 		t.Fatalf("save: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// List
-	req = httptest.NewRequest("GET", "/api/drawings", nil)
 	w = httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c = ginContext(w, "GET", "/api/drawings", "")
+	h.HandleGetDrawings(c)
 
 	var names []string
 	json.NewDecoder(w.Body).Decode(&names)
@@ -360,9 +451,9 @@ func TestDrawingsHandler_SaveAndLoad(t *testing.T) {
 	}
 
 	// Load
-	req = httptest.NewRequest("GET", "/api/drawings?name=test-project", nil)
 	w = httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c = ginContext(w, "GET", "/api/drawings?name=test-project", "")
+	h.HandleGetDrawings(c)
 
 	if w.Code != 200 {
 		t.Fatalf("load: expected 200, got %d", w.Code)
@@ -379,25 +470,21 @@ func TestDrawingsHandler_Delete(t *testing.T) {
 	dir := t.TempDir()
 	h := &DrawingsHandler{Dir: dir}
 
-	// Save first
-	body := `{"name":"to-delete"}`
-	req := httptest.NewRequest("POST", "/api/drawings", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c := ginContext(w, "POST", "/api/drawings", `{"name":"to-delete"}`)
+	h.HandlePostDrawings(c)
 
-	// Delete
-	req = httptest.NewRequest("DELETE", "/api/drawings?name=to-delete", nil)
 	w = httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c = ginContext(w, "DELETE", "/api/drawings?name=to-delete", "")
+	h.HandleDeleteDrawings(c)
 
 	if w.Code != 200 {
 		t.Fatalf("delete: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify deleted
-	req = httptest.NewRequest("GET", "/api/drawings?name=to-delete", nil)
 	w = httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c = ginContext(w, "GET", "/api/drawings?name=to-delete", "")
+	h.HandleGetDrawings(c)
 	if w.Code != 404 {
 		t.Errorf("expected 404 after delete, got %d", w.Code)
 	}
@@ -406,9 +493,9 @@ func TestDrawingsHandler_Delete(t *testing.T) {
 func TestDrawingsHandler_DeleteNotFound(t *testing.T) {
 	h := &DrawingsHandler{Dir: t.TempDir()}
 
-	req := httptest.NewRequest("DELETE", "/api/drawings?name=nonexistent", nil)
 	w := httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c := ginContext(w, "DELETE", "/api/drawings?name=nonexistent", "")
+	h.HandleDeleteDrawings(c)
 
 	if w.Code != 404 {
 		t.Errorf("expected 404, got %d", w.Code)
@@ -418,24 +505,12 @@ func TestDrawingsHandler_DeleteNotFound(t *testing.T) {
 func TestDrawingsHandler_PostNoName(t *testing.T) {
 	h := &DrawingsHandler{Dir: t.TempDir()}
 
-	req := httptest.NewRequest("POST", "/api/drawings", strings.NewReader(`{"data":123}`))
 	w := httptest.NewRecorder()
-	h.HandleDrawings(w, req)
+	c := ginContext(w, "POST", "/api/drawings", `{"data":123}`)
+	h.HandlePostDrawings(c)
 
 	if w.Code != 400 {
 		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestDrawingsHandler_MethodNotAllowed(t *testing.T) {
-	h := &DrawingsHandler{Dir: t.TempDir()}
-
-	req := httptest.NewRequest("PUT", "/api/drawings", nil)
-	w := httptest.NewRecorder()
-	h.HandleDrawings(w, req)
-
-	if w.Code != 405 {
-		t.Errorf("expected 405, got %d", w.Code)
 	}
 }
 
@@ -461,5 +536,47 @@ func TestSanitizeFilename(t *testing.T) {
 				t.Errorf("sanitizeFilename(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
 		})
+	}
+}
+
+// --- LRU Cache ---
+
+func TestTileCache_PutGet(t *testing.T) {
+	cache := NewTileCache(1024)
+	cache.Put("1/0/0", []byte("data1"))
+
+	data, ok := cache.Get("1/0/0")
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if string(data) != "data1" {
+		t.Errorf("expected data1, got %s", data)
+	}
+}
+
+func TestTileCache_Eviction(t *testing.T) {
+	cache := NewTileCache(10) // 10 bytes max
+	cache.Put("a", []byte("12345"))  // 5 bytes
+	cache.Put("b", []byte("67890"))  // 5 bytes, total 10
+	cache.Put("c", []byte("abcde")) // 5 bytes, total 15 -> evict "a"
+
+	if _, ok := cache.Get("a"); ok {
+		t.Error("expected 'a' to be evicted")
+	}
+	if _, ok := cache.Get("b"); !ok {
+		t.Error("expected 'b' to still be cached")
+	}
+	if _, ok := cache.Get("c"); !ok {
+		t.Error("expected 'c' to still be cached")
+	}
+}
+
+func TestTileCache_Clear(t *testing.T) {
+	cache := NewTileCache(1024)
+	cache.Put("a", []byte("data"))
+	cache.Clear()
+
+	if _, ok := cache.Get("a"); ok {
+		t.Error("expected cache to be empty after clear")
 	}
 }

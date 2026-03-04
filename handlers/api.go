@@ -1,17 +1,20 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync/atomic"
 	"time"
 
 	"go-tile-server/downloader"
+
+	"github.com/gin-gonic/gin"
 )
 
 type APIHandler struct {
-	Manager *downloader.Manager
+	Manager     *downloader.Manager
+	TileHandler *TileHandler
 }
 
 type DownloadRequest struct {
@@ -22,143 +25,136 @@ type DownloadRequest struct {
 	BaseLayer string               `json:"base_layer"`
 }
 
-func (h *APIHandler) HandleDownload(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) HandleDownload(c *gin.Context) {
 	var req DownloadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.String(http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	if len(req.Polygon) < 3 {
-		http.Error(w, "polygon must have at least 3 points", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "polygon must have at least 3 points")
 		return
 	}
 	if req.ZoomMin < 0 || req.ZoomMin > 20 {
-		http.Error(w, "invalid zoom_min (0-20)", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "invalid zoom_min (0-20)")
 		return
 	}
 	if req.ZoomMax < 0 || req.ZoomMax > 20 {
-		http.Error(w, "invalid zoom_max (0-20)", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "invalid zoom_max (0-20)")
 		return
 	}
 	if req.ZoomMin > req.ZoomMax {
-		http.Error(w, "zoom_min must be <= zoom_max", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "zoom_min must be <= zoom_max")
 		return
 	}
 
 	task := h.Manager.StartDownload(req.Polygon, req.Holes, req.ZoomMin, req.ZoomMax, req.BaseLayer)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	// Invalidate tile-size cache when download starts
+	if h.TileHandler != nil {
+		h.TileHandler.InvalidateSizeCache()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
 		"task_id": task.ID,
 		"total":   task.Total,
 		"status":  task.Status,
 	})
 }
 
-func (h *APIHandler) HandleProgress(w http.ResponseWriter, r *http.Request) {
-	taskID := r.URL.Query().Get("task_id")
+func (h *APIHandler) HandleProgress(c *gin.Context) {
+	taskID := c.Query("task_id")
 	if taskID == "" {
-		http.Error(w, "missing task_id", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "missing task_id")
 		return
 	}
 
 	task := h.Manager.GetTask(taskID)
 	if task == nil {
-		http.Error(w, "task not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "task not found")
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	for {
+	c.Stream(func(w io.Writer) bool {
 		done := atomic.LoadInt64(&task.Done)
 		errors := atomic.LoadInt64(&task.Errors)
 		currentZoom := atomic.LoadInt64(&task.CurrentZoom)
-
 		deduped := atomic.LoadInt64(&task.Deduped)
 
 		data := fmt.Sprintf(`{"done":%d,"total":%d,"errors":%d,"deduped":%d,"status":"%s","current_zoom":%d,"zoom_min":%d,"zoom_max":%d}`,
 			done, task.Total, errors, deduped, task.Status, currentZoom, task.ZoomMin, task.ZoomMax)
 
 		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
 
 		if task.Status == "completed" || task.Status == "cancelled" || task.Status == "error" {
-			return
+			if h.TileHandler != nil {
+				h.TileHandler.InvalidateSizeCache()
+			}
+			return false
 		}
 
 		select {
-		case <-r.Context().Done():
-			return
+		case <-c.Request.Context().Done():
+			return false
 		case <-time.After(500 * time.Millisecond):
 		}
-	}
+		return true
+	})
 }
 
-func (h *APIHandler) HandleTasks(w http.ResponseWriter, r *http.Request) {
-	tasks := h.Manager.ListTasks()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+func (h *APIHandler) HandleTasks(c *gin.Context) {
+	c.JSON(http.StatusOK, h.Manager.ListTasks())
 }
 
-func (h *APIHandler) HandleCancel(w http.ResponseWriter, r *http.Request) {
-	taskID := r.URL.Query().Get("task_id")
+func (h *APIHandler) HandleCancel(c *gin.Context) {
+	taskID := c.Query("task_id")
 	if taskID == "" {
-		http.Error(w, "missing task_id", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "missing task_id")
 		return
 	}
 
 	task := h.Manager.GetTask(taskID)
 	if task == nil {
-		http.Error(w, "task not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "task not found")
 		return
 	}
 
 	task.Cancel()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "cancelled",
-	})
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
-func (h *APIHandler) HandleCount(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) HandleCount(c *gin.Context) {
 	var req DownloadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.String(http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
 	if len(req.Polygon) < 3 {
-		http.Error(w, "polygon must have at least 3 points", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "polygon must have at least 3 points")
 		return
 	}
 
 	count := downloader.CountTilesPolygon(req.Polygon, req.Holes, req.ZoomMin, req.ZoomMax)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int64{
-		"count": count,
-	})
+	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-func (h *APIHandler) HandleDedup(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) HandleDedup(c *gin.Context) {
 	result, err := h.Manager.DeduplicateTiles()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if h.TileHandler != nil {
+		h.TileHandler.InvalidateSizeCache()
+	}
+
+	c.JSON(http.StatusOK, result)
 }

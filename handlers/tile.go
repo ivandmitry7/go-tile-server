@@ -3,92 +3,193 @@ package handlers
 import (
 	"archive/tar"
 	"compress/gzip"
-	"encoding/json"
-	"fmt"
+	"container/list"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/gin-gonic/gin"
 )
 
+// --- LRU Tile Cache ---
+
+type tileEntry struct {
+	key  string
+	data []byte
+}
+
+type TileCache struct {
+	mu       sync.Mutex
+	items    map[string]*list.Element
+	order    *list.List
+	maxBytes int64
+	curBytes int64
+}
+
+func NewTileCache(maxBytes int64) *TileCache {
+	return &TileCache{
+		items:    make(map[string]*list.Element),
+		order:    list.New(),
+		maxBytes: maxBytes,
+	}
+}
+
+func (c *TileCache) Get(key string) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.items[key]; ok {
+		c.order.MoveToFront(el)
+		return el.Value.(*tileEntry).data, true
+	}
+	return nil, false
+}
+
+func (c *TileCache) Put(key string, data []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if el, ok := c.items[key]; ok {
+		c.order.MoveToFront(el)
+		old := el.Value.(*tileEntry)
+		c.curBytes += int64(len(data)) - int64(len(old.data))
+		old.data = data
+	} else {
+		el := c.order.PushFront(&tileEntry{key: key, data: data})
+		c.items[key] = el
+		c.curBytes += int64(len(data))
+	}
+
+	for c.curBytes > c.maxBytes && c.order.Len() > 0 {
+		oldest := c.order.Back()
+		entry := oldest.Value.(*tileEntry)
+		c.order.Remove(oldest)
+		delete(c.items, entry.key)
+		c.curBytes -= int64(len(entry.data))
+	}
+}
+
+func (c *TileCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items = make(map[string]*list.Element)
+	c.order.Init()
+	c.curBytes = 0
+}
+
+// --- Tile Size Cache ---
+
+type tileSizeCache struct {
+	mu    sync.RWMutex
+	size  int64
+	files int64
+	valid bool
+}
+
+// --- TileHandler ---
+
 type TileHandler struct {
-	TileDir string
+	TileDir   string
+	Cache     *TileCache
+	sizeCache tileSizeCache
 }
 
-func (h *TileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Parse path: /tiles/{z}/{x}/{y}.png
-	path := strings.TrimPrefix(r.URL.Path, "/tiles/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 {
-		http.Error(w, "invalid tile path", http.StatusBadRequest)
-		return
+func NewTileHandler(tileDir string, cacheBytes int64) *TileHandler {
+	return &TileHandler{
+		TileDir: tileDir,
+		Cache:   NewTileCache(cacheBytes),
 	}
-
-	z, err := strconv.Atoi(parts[0])
-	if err != nil {
-		http.Error(w, "invalid zoom", http.StatusBadRequest)
-		return
-	}
-
-	x, err := strconv.Atoi(parts[1])
-	if err != nil {
-		http.Error(w, "invalid x", http.StatusBadRequest)
-		return
-	}
-
-	yStr := strings.TrimSuffix(parts[2], ".png")
-	y, err := strconv.Atoi(yStr)
-	if err != nil {
-		http.Error(w, "invalid y", http.StatusBadRequest)
-		return
-	}
-
-	tilePath := filepath.Join(h.TileDir, fmt.Sprintf("%d", z), fmt.Sprintf("%d", x), fmt.Sprintf("%d.png", y))
-
-	if _, err := os.Stat(tilePath); os.IsNotExist(err) {
-		http.Error(w, "tile not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	http.ServeFile(w, r, tilePath)
 }
 
-func (h *TileHandler) HandleTileSize(w http.ResponseWriter, r *http.Request) {
-	var totalSize int64
-	var fileCount int64
+func (h *TileHandler) ServeTile(c *gin.Context) {
+	z := c.Param("z")
+	x := c.Param("x")
+	filename := c.Param("filename")
 
+	if !strings.HasSuffix(filename, ".png") {
+		c.String(http.StatusBadRequest, "invalid tile path")
+		return
+	}
+	y := strings.TrimSuffix(filename, ".png")
+
+	cacheKey := z + "/" + x + "/" + y
+
+	// Check cache first
+	if data, ok := h.Cache.Get(cacheKey); ok {
+		c.Header("Content-Type", "image/png")
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Data(http.StatusOK, "image/png", data)
+		return
+	}
+
+	tilePath := filepath.Join(h.TileDir, z, x, filename)
+
+	data, err := os.ReadFile(tilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.String(http.StatusNotFound, "tile not found")
+		} else {
+			c.String(http.StatusInternalServerError, "read error")
+		}
+		return
+	}
+
+	// Store in cache
+	h.Cache.Put(cacheKey, data)
+
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Data(http.StatusOK, "image/png", data)
+}
+
+func (h *TileHandler) HandleTileSize(c *gin.Context) {
+	h.sizeCache.mu.RLock()
+	if h.sizeCache.valid {
+		size, files := h.sizeCache.size, h.sizeCache.files
+		h.sizeCache.mu.RUnlock()
+		c.JSON(http.StatusOK, gin.H{"size": size, "files": files})
+		return
+	}
+	h.sizeCache.mu.RUnlock()
+
+	// Compute and cache
+	var totalSize, fileCount int64
 	filepath.WalkDir(h.TileDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil || d.IsDir() {
 			return nil
 		}
-		if !d.IsDir() {
-			info, err := d.Info()
-			if err == nil {
-				totalSize += info.Size()
-				fileCount++
-			}
+		info, err := d.Info()
+		if err == nil {
+			totalSize += info.Size()
+			fileCount++
 		}
 		return nil
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int64{
-		"size":  totalSize,
-		"files": fileCount,
-	})
+	h.sizeCache.mu.Lock()
+	h.sizeCache.size = totalSize
+	h.sizeCache.files = fileCount
+	h.sizeCache.valid = true
+	h.sizeCache.mu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{"size": totalSize, "files": fileCount})
 }
 
-func (h *TileHandler) HandleExportTiles(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", `attachment; filename="tiles.tar.gz"`)
+func (h *TileHandler) InvalidateSizeCache() {
+	h.sizeCache.mu.Lock()
+	h.sizeCache.valid = false
+	h.sizeCache.mu.Unlock()
+}
 
-	gzw := gzip.NewWriter(w)
+func (h *TileHandler) HandleExportTiles(c *gin.Context) {
+	c.Header("Content-Type", "application/gzip")
+	c.Header("Content-Disposition", `attachment; filename="tiles.tar.gz"`)
+
+	gzw := gzip.NewWriter(c.Writer)
 	defer gzw.Close()
 	tw := tar.NewWriter(gzw)
 	defer tw.Close()
@@ -123,18 +224,17 @@ func (h *TileHandler) HandleExportTiles(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func (h *TileHandler) HandleImportTiles(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(2 << 30) // 2GB max
-	file, _, err := r.FormFile("file")
+func (h *TileHandler) HandleImportTiles(c *gin.Context) {
+	file, _, err := c.Request.FormFile("file")
 	if err != nil {
-		http.Error(w, "missing file", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "missing file")
 		return
 	}
 	defer file.Close()
 
 	gzr, err := gzip.NewReader(file)
 	if err != nil {
-		http.Error(w, "invalid gzip", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "invalid gzip")
 		return
 	}
 	defer gzr.Close()
@@ -147,7 +247,7 @@ func (h *TileHandler) HandleImportTiles(w http.ResponseWriter, r *http.Request) 
 			break
 		}
 		if err != nil {
-			http.Error(w, "invalid tar", http.StatusBadRequest)
+			c.String(http.StatusBadRequest, "invalid tar")
 			return
 		}
 
@@ -172,9 +272,8 @@ func (h *TileHandler) HandleImportTiles(w http.ResponseWriter, r *http.Request) 
 		count++
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "ok",
-		"files":  count,
-	})
+	h.Cache.Clear()
+	h.InvalidateSizeCache()
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "files": count})
 }

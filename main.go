@@ -11,6 +11,8 @@ import (
 
 	"go-tile-server/downloader"
 	"go-tile-server/handlers"
+
+	"github.com/gin-gonic/gin"
 )
 
 //go:embed web
@@ -23,36 +25,39 @@ func main() {
 	}
 
 	manager := downloader.NewManager(tileDir)
-
-	api := &handlers.APIHandler{Manager: manager}
-	tileHandler := &handlers.TileHandler{TileDir: tileDir}
+	tileHandler := handlers.NewTileHandler(tileDir, 512*1024*1024) // 512MB cache
 	drawingsHandler := &handlers.DrawingsHandler{Dir: filepath.Join(".", "drawings")}
+	api := &handlers.APIHandler{Manager: manager, TileHandler: tileHandler}
 
-	// Serve embedded web UI
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {
 		log.Fatalf("Failed to access embedded web files: %v", err)
 	}
 
-	mux := http.NewServeMux()
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
 
 	// API routes
-	mux.HandleFunc("/api/download", api.HandleDownload)
-	mux.HandleFunc("/api/progress", api.HandleProgress)
-	mux.HandleFunc("/api/tasks", api.HandleTasks)
-	mux.HandleFunc("/api/cancel", api.HandleCancel)
-	mux.HandleFunc("/api/count", api.HandleCount)
-	mux.HandleFunc("/api/dedup", api.HandleDedup)
-	mux.HandleFunc("/api/drawings", drawingsHandler.HandleDrawings)
-	mux.HandleFunc("/api/tile-size", tileHandler.HandleTileSize)
-	mux.HandleFunc("/api/export-tiles", tileHandler.HandleExportTiles)
-	mux.HandleFunc("/api/import-tiles", tileHandler.HandleImportTiles)
+	r.POST("/api/download", api.HandleDownload)
+	r.GET("/api/progress", api.HandleProgress)
+	r.GET("/api/tasks", api.HandleTasks)
+	r.GET("/api/cancel", api.HandleCancel)
+	r.POST("/api/count", api.HandleCount)
+	r.GET("/api/dedup", api.HandleDedup)
+	r.GET("/api/tile-size", tileHandler.HandleTileSize)
+	r.GET("/api/export-tiles", tileHandler.HandleExportTiles)
+	r.POST("/api/import-tiles", tileHandler.HandleImportTiles)
 
-	// Tile server
-	mux.Handle("/tiles/", tileHandler)
+	// Drawings
+	r.GET("/api/drawings", drawingsHandler.HandleGetDrawings)
+	r.POST("/api/drawings", drawingsHandler.HandlePostDrawings)
+	r.DELETE("/api/drawings", drawingsHandler.HandleDeleteDrawings)
+
+	// Tiles
+	r.GET("/tiles/:z/:x/:filename", tileHandler.ServeTile)
 
 	// Web UI
-	mux.Handle("/", http.FileServer(http.FS(webContent)))
+	r.StaticFS("/", http.FS(webContent))
 
 	port := "8080"
 	if p := os.Getenv("PORT"); p != "" {
@@ -60,10 +65,11 @@ func main() {
 	}
 
 	fmt.Printf("===========================================\n")
-	fmt.Printf("  Google Offline Tile Server\n")
+	fmt.Printf("  Offline Tile Server (Gin)\n")
 	fmt.Printf("  http://localhost:%s\n", port)
 	fmt.Printf("  Tiles directory: %s\n", tileDir)
+	fmt.Printf("  Tile cache: 512 MB\n")
 	fmt.Printf("===========================================\n")
 
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(r.Run(":" + port))
 }

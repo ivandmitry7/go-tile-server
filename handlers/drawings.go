@@ -7,34 +7,21 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type DrawingsHandler struct {
 	Dir string
 }
 
-func (h *DrawingsHandler) HandleDrawings(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		h.handleGet(w, r)
-	case http.MethodPost:
-		h.handlePost(w, r)
-	case http.MethodDelete:
-		h.handleDelete(w, r)
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (h *DrawingsHandler) handleGet(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
+func (h *DrawingsHandler) HandleGetDrawings(c *gin.Context) {
+	name := c.Query("name")
 
 	if name == "" {
-		// List all saved drawings
 		entries, err := os.ReadDir(h.Dir)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]string{})
+			c.JSON(http.StatusOK, []string{})
 			return
 		}
 		names := []string{}
@@ -43,72 +30,67 @@ func (h *DrawingsHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 				names = append(names, strings.TrimSuffix(e.Name(), ".json"))
 			}
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(names)
+		c.JSON(http.StatusOK, names)
 		return
 	}
 
-	// Load specific drawing
 	filename := sanitizeFilename(name) + ".json"
 	data, err := os.ReadFile(filepath.Join(h.Dir, filename))
 	if err != nil {
-		http.Error(w, "drawing not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "drawing not found")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	c.Data(http.StatusOK, "application/json", data)
 }
 
-func (h *DrawingsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
+func (h *DrawingsHandler) HandlePostDrawings(c *gin.Context) {
 	var config map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+	if err := json.NewDecoder(c.Request.Body).Decode(&config); err != nil {
+		c.String(http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	name, ok := config["name"].(string)
 	if !ok || name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "name is required")
 		return
 	}
 
 	if err := os.MkdirAll(h.Dir, 0755); err != nil {
-		http.Error(w, "failed to create drawings directory", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "failed to create drawings directory")
 		return
 	}
 
 	filename := sanitizeFilename(name) + ".json"
 	data, _ := json.MarshalIndent(config, "", "  ")
 	if err := os.WriteFile(filepath.Join(h.Dir, filename), data, 0644); err != nil {
-		http.Error(w, "failed to save", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "failed to save")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "saved", "name": name})
+	c.JSON(http.StatusOK, gin.H{"status": "saved", "name": name})
 }
 
-func (h *DrawingsHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
+func (h *DrawingsHandler) HandleDeleteDrawings(c *gin.Context) {
+	name := c.Query("name")
 	if name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
+		c.String(http.StatusBadRequest, "name is required")
 		return
 	}
 
 	filename := sanitizeFilename(name) + ".json"
 	path := filepath.Join(h.Dir, filename)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		http.Error(w, "drawing not found", http.StatusNotFound)
+		c.String(http.StatusNotFound, "drawing not found")
 		return
 	}
 
 	if err := os.Remove(path); err != nil {
-		http.Error(w, "failed to delete", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "failed to delete")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
 }
 
 var safeNameRe = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
