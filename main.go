@@ -56,8 +56,11 @@ func main() {
 	// Tiles
 	r.GET("/tiles/:z/:x/:filename", tileHandler.ServeTile)
 
-	// Web UI
-	r.StaticFS("/", http.FS(webContent))
+	// Web UI — serve embedded files for unmatched routes
+	staticFS := http.FS(webContent)
+	r.NoRoute(func(c *gin.Context) {
+		c.FileFromFS(c.Request.URL.Path, staticFS)
+	})
 
 	port := "8080"
 	if p := os.Getenv("PORT"); p != "" {
