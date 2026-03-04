@@ -306,6 +306,14 @@
                                         <i class="bi bi-upload"></i> Import KML
                                     </button>
                                     <input type="file" id="kmlFileInput" accept=".kml" class="hidden">
+                                    <hr class="my-1 border-secondary">
+                                    <button id="btnExportTiles" class="btn btn-sm btn-outline-success">
+                                        <i class="bi bi-file-earmark-zip"></i> Download Tiles
+                                    </button>
+                                    <button id="btnImportTiles" class="btn btn-sm btn-outline-success">
+                                        <i class="bi bi-cloud-upload"></i> Upload Tiles
+                                    </button>
+                                    <input type="file" id="tilesFileInput" accept=".tar.gz,.tgz" class="hidden">
                                     <button id="btnClear" class="btn btn-sm btn-outline-secondary">
                                         <i class="bi bi-trash3"></i> Clear All
                                     </button>
@@ -1105,6 +1113,37 @@
             const reader = new FileReader();
             reader.onload = function(evt) { importKML(evt.target.result); };
             reader.readAsText(file);
+            this.value = '';
+        });
+
+        // === Export/Import Tiles ===
+        document.getElementById('btnExportTiles').addEventListener('click', function() {
+            window.location.href = '/api/export-tiles';
+        });
+
+        document.getElementById('btnImportTiles').addEventListener('click', function() {
+            document.getElementById('tilesFileInput').click();
+        });
+
+        document.getElementById('tilesFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const btn = document.getElementById('btnImportTiles');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
+            const form = new FormData();
+            form.append('file', file);
+            fetch('/api/import-tiles', { method: 'POST', body: form })
+                .then(r => r.json())
+                .then(data => {
+                    alert('Imported ' + data.files + ' tiles');
+                    refreshTileSize();
+                })
+                .catch(err => alert('Upload failed: ' + err))
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-cloud-upload"></i> Upload Tiles';
+                });
             this.value = '';
         });
 

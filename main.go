@@ -45,6 +45,8 @@ func main() {
 	mux.HandleFunc("/api/dedup", api.HandleDedup)
 	mux.HandleFunc("/api/drawings", drawingsHandler.HandleDrawings)
 	mux.HandleFunc("/api/tile-size", tileHandler.HandleTileSize)
+	mux.HandleFunc("/api/export-tiles", tileHandler.HandleExportTiles)
+	mux.HandleFunc("/api/import-tiles", tileHandler.HandleImportTiles)
 
 	// Tile server
 	mux.Handle("/tiles/", tileHandler)
