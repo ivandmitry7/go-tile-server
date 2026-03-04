@@ -2,7 +2,7 @@ APP_NAME := tile-server
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS  := -s -w -X main.version=$(VERSION)
 
-.PHONY: build run clean vet cross docker
+.PHONY: build run clean vet test cross docker
 
 build:
 	go build -ldflags="$(LDFLAGS)" -o $(APP_NAME) .
@@ -12,6 +12,9 @@ run: build
 
 vet:
 	go vet ./...
+
+test:
+	go test ./...
 
 clean:
 	rm -f $(APP_NAME) tile-server-*
