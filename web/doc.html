@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tile Server - API Documentation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root, [data-bs-theme="dark"] {
+            --bs-body-bg: #0d1117;
+            --bs-body-color: #e6edf3;
+            --bs-border-color: #1b2838;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+        /* Sidebar */
+        .doc-sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0; width: 260px;
+            background: #0d1117; border-right: 1px solid #1b2838;
+            overflow-y: auto; padding: 20px 0; z-index: 100;
+        }
+        .doc-sidebar .nav-link {
+            color: #8b949e; font-size: 13px; padding: 5px 20px;
+            border-left: 2px solid transparent;
+        }
+        .doc-sidebar .nav-link:hover { color: #e6edf3; background: #161b22; }
+        .doc-sidebar .nav-link.active { color: #0097ee; border-left-color: #0097ee; background: #161b22; }
+        .doc-sidebar .section-label {
+            color: #8b949e; font-size: 11px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.5px; padding: 12px 20px 4px; margin-top: 8px;
+        }
+
+        /* Main content */
+        .doc-main { margin-left: 260px; padding: 40px 48px; max-width: 900px; }
+
+        /* Header */
+        .doc-header {
+            background: #0d1117; border-bottom: 1px solid #1b2838;
+            padding: 16px 20px; position: sticky; top: 0; z-index: 50;
+        }
+        .doc-header h4 { color: #0097ee; margin: 0; font-size: 16px; }
+
+        /* Method badges */
+        .method { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px;
+            border-radius: 4px; color: #fff; font-family: monospace; min-width: 55px; text-align: center; }
+        .method-get { background: #238636; }
+        .method-post { background: #1f6feb; }
+        .method-delete { background: #da3633; }
+
+        /* Endpoint path */
+        .endpoint-path { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 15px; color: #e6edf3; }
+
+        /* Code blocks */
+        pre {
+            background: #161b22; border: 1px solid #1b2838; border-radius: 6px;
+            padding: 14px 16px; font-size: 13px; color: #e6edf3; overflow-x: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        code {
+            background: #161b22; border: 1px solid #1b2838; border-radius: 4px;
+            padding: 1px 6px; font-size: 13px; color: #0097ee;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        pre code { background: none; border: none; padding: 0; color: #e6edf3; }
+
+        /* Section */
+        .api-section { margin-bottom: 48px; padding-top: 20px; }
+        .api-section h2 { font-size: 20px; color: #e6edf3; margin-bottom: 16px;
+            padding-bottom: 8px; border-bottom: 1px solid #1b2838; }
+        .api-section h3 { font-size: 16px; color: #e6edf3; margin: 20px 0 10px; }
+
+        /* Tables */
+        .param-table { width: 100%; font-size: 13px; }
+        .param-table th { color: #8b949e; font-weight: 600; padding: 8px 12px;
+            border-bottom: 1px solid #1b2838; text-align: left; }
+        .param-table td { padding: 8px 12px; border-bottom: 1px solid #1b2838; color: #e6edf3; }
+        .param-table .type { color: #0097ee; font-family: monospace; font-size: 12px; }
+
+        /* Tabs */
+        .example-tabs { display: flex; gap: 0; margin-bottom: 0; }
+        .example-tab {
+            padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 600;
+            border: 1px solid #1b2838; border-bottom: none; border-radius: 6px 6px 0 0;
+            background: #0d1117; color: #8b949e;
+        }
+        .example-tab.active { background: #161b22; color: #0097ee; }
+        .example-content { display: none; }
+        .example-content.active { display: block; }
+        .example-content pre { border-radius: 0 6px 6px 6px; margin-top: 0; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .doc-sidebar { display: none; }
+            .doc-main { margin-left: 0; padding: 20px 16px; }
+        }
+
+        /* Scrollbar */
+        .doc-sidebar::-webkit-scrollbar { width: 4px; }
+        .doc-sidebar::-webkit-scrollbar-track { background: #0d1117; }
+        .doc-sidebar::-webkit-scrollbar-thumb { background: #1b2838; border-radius: 2px; }
+
+        .note {
+            background: #161b22; border-left: 3px solid #0097ee; padding: 10px 14px;
+            border-radius: 0 6px 6px 0; font-size: 13px; color: #8b949e; margin: 12px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- SIDEBAR -->
+    <nav class="doc-sidebar">
+        <div class="doc-header">
+            <h4><i class="bi bi-map me-2"></i>Tile Server API</h4>
+        </div>
+        <div class="mt-2">
+            <a href="/" class="nav-link"><i class="bi bi-arrow-left me-1"></i> Back to App</a>
+        </div>
+        <div class="section-label">Integration</div>
+        <a href="#tile-url" class="nav-link">Tile URL Format</a>
+        <div class="section-label">Download</div>
+        <a href="#download" class="nav-link">Start Download</a>
+        <a href="#progress" class="nav-link">Progress Stream</a>
+        <a href="#tasks" class="nav-link">List Tasks</a>
+        <a href="#cancel" class="nav-link">Cancel Task</a>
+        <a href="#count" class="nav-link">Count Tiles</a>
+        <div class="section-label">Projects</div>
+        <a href="#drawings-list" class="nav-link">List Projects</a>
+        <a href="#drawings-get" class="nav-link">Get Project</a>
+        <a href="#drawings-save" class="nav-link">Save Project</a>
+        <a href="#drawings-delete" class="nav-link">Delete Project</a>
+        <div class="section-label">Storage</div>
+        <a href="#tile-size" class="nav-link">Storage Info</a>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <div class="doc-main">
+        <h1 style="color: #0097ee; margin-bottom: 8px;">API Documentation</h1>
+        <p class="text-muted mb-4">REST API reference for integrating with the Tile Server.</p>
+
+        <!-- TILE URL FORMAT -->
+        <div class="api-section" id="tile-url">
+            <h2><i class="bi bi-layers me-2"></i>Tile URL Format</h2>
+            <p>Serve downloaded map tiles via standard XYZ URL pattern:</p>
+            <pre><code>GET /tiles/{z}/{x}/{y}.png</code></pre>
+            <table class="param-table">
+                <tr><th>Param</th><th>Description</th></tr>
+                <tr><td><code>z</code></td><td>Zoom level (0-20)</td></tr>
+                <tr><td><code>x</code></td><td>Tile column</td></tr>
+                <tr><td><code>y</code></td><td>Tile row</td></tr>
+            </table>
+            <div class="note">
+                <strong>CORS:</strong> All tile responses include <code>Access-Control-Allow-Origin: *</code> header, so tiles can be used from any domain.
+            </div>
+
+            <h3>Leaflet.js</h3>
+            <pre><code>L.tileLayer('http://YOUR_HOST:8080/tiles/{z}/{x}/{y}.png', {
+    maxZoom: 20,
+    attribution: 'Offline Tiles'
+}).addTo(map);</code></pre>
+
+            <h3>OpenLayers</h3>
+            <pre><code>new ol.layer.Tile({
+    source: new ol.source.XYZ({
+        url: 'http://YOUR_HOST:8080/tiles/{z}/{x}/{y}.png',
+        maxZoom: 20
+    })
+});</code></pre>
+
+            <h3>MapLibre GL</h3>
+            <pre><code>map.addSource('offline-tiles', {
+    type: 'raster',
+    tiles: ['http://YOUR_HOST:8080/tiles/{z}/{x}/{y}.png'],
+    tileSize: 256,
+    maxzoom: 20
+});</code></pre>
+        </div>
+
+        <!-- START DOWNLOAD -->
+        <div class="api-section" id="download">
+            <h2><span class="method method-post">POST</span> <span class="endpoint-path">/api/download</span></h2>
+            <p>Start downloading tiles for a polygon area.</p>
+
+            <h3>Request Body</h3>
+            <table class="param-table">
+                <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+                <tr><td><code>polygon</code></td><td class="type">[{lat, lng}]</td><td>Polygon vertices (min 3 points)</td></tr>
+                <tr><td><code>holes</code></td><td class="type">[[{lat, lng}]]</td><td>Exclusion zones (optional)</td></tr>
+                <tr><td><code>zoom_min</code></td><td class="type">int</td><td>Minimum zoom level (0-20)</td></tr>
+                <tr><td><code>zoom_max</code></td><td class="type">int</td><td>Maximum zoom level (0-20)</td></tr>
+            </table>
+
+            <h3>Response</h3>
+            <pre><code>{
+    "task_id": "task-1",
+    "total": 12345,
+    "status": "running"
+}</code></pre>
+
+            <h3>Validation</h3>
+            <ul>
+                <li><code>polygon</code> must have at least 3 points</li>
+                <li><code>zoom_min</code> and <code>zoom_max</code> must be 0-20</li>
+                <li><code>zoom_min</code> must be &le; <code>zoom_max</code></li>
+            </ul>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'dl-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'dl-js')">JavaScript</div>
+            </div>
+            <div id="dl-curl" class="example-content active">
+                <pre><code>curl -X POST http://localhost:8080/api/download \
+  -H "Content-Type: application/json" \
+  -d '{
+    "polygon": [
+      {"lat": 16.05, "lng": 108.18},
+      {"lat": 16.05, "lng": 108.22},
+      {"lat": 16.02, "lng": 108.22},
+      {"lat": 16.02, "lng": 108.18}
+    ],
+    "holes": [],
+    "zoom_min": 10,
+    "zoom_max": 15
+  }'</code></pre>
+            </div>
+            <div id="dl-js" class="example-content">
+                <pre><code>const resp = await fetch('/api/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        polygon: [
+            { lat: 16.05, lng: 108.18 },
+            { lat: 16.05, lng: 108.22 },
+            { lat: 16.02, lng: 108.22 },
+            { lat: 16.02, lng: 108.18 }
+        ],
+        holes: [],
+        zoom_min: 10,
+        zoom_max: 15
+    })
+});
+const data = await resp.json();
+console.log('Task ID:', data.task_id);</code></pre>
+            </div>
+        </div>
+
+        <!-- PROGRESS STREAM -->
+        <div class="api-section" id="progress">
+            <h2><span class="method method-get">GET</span> <span class="endpoint-path">/api/progress?task_id=X</span></h2>
+            <p>Server-Sent Events (SSE) stream for real-time download progress.</p>
+
+            <h3>Query Parameters</h3>
+            <table class="param-table">
+                <tr><th>Param</th><th>Type</th><th>Description</th></tr>
+                <tr><td><code>task_id</code></td><td class="type">string</td><td>Task ID from download response</td></tr>
+            </table>
+
+            <h3>SSE Data Format</h3>
+            <pre><code>{
+    "done": 1500,
+    "total": 5000,
+    "errors": 2,
+    "status": "running",
+    "current_zoom": 13,
+    "zoom_min": 10,
+    "zoom_max": 15
+}</code></pre>
+
+            <h3>Status Values</h3>
+            <table class="param-table">
+                <tr><th>Status</th><th>Description</th></tr>
+                <tr><td><code>running</code></td><td>Download in progress</td></tr>
+                <tr><td><code>completed</code></td><td>All tiles downloaded</td></tr>
+                <tr><td><code>cancelled</code></td><td>User cancelled</td></tr>
+                <tr><td><code>error</code></td><td>Download failed</td></tr>
+            </table>
+
+            <h3>JavaScript Example</h3>
+            <pre><code>const es = new EventSource('/api/progress?task_id=' + taskId);
+es.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+    const pct = Math.round(data.done / data.total * 100);
+    console.log(`Progress: ${pct}% (${data.done}/${data.total})`);
+    if (data.status === 'completed' || data.status === 'cancelled') {
+        es.close();
+    }
+};</code></pre>
+        </div>
+
+        <!-- LIST TASKS -->
+        <div class="api-section" id="tasks">
+            <h2><span class="method method-get">GET</span> <span class="endpoint-path">/api/tasks</span></h2>
+            <p>List all download tasks (running and completed).</p>
+
+            <h3>Response</h3>
+            <pre><code>[
+    {
+        "ID": "task-1",
+        "Status": "completed",
+        "Total": 5000,
+        "Done": 5000,
+        "Errors": 0,
+        "ZoomMin": 10,
+        "ZoomMax": 15
+    }
+]</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'tasks-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'tasks-js')">JavaScript</div>
+            </div>
+            <div id="tasks-curl" class="example-content active">
+                <pre><code>curl http://localhost:8080/api/tasks</code></pre>
+            </div>
+            <div id="tasks-js" class="example-content">
+                <pre><code>const tasks = await fetch('/api/tasks').then(r => r.json());
+console.log(tasks);</code></pre>
+            </div>
+        </div>
+
+        <!-- CANCEL TASK -->
+        <div class="api-section" id="cancel">
+            <h2><span class="method method-get">GET</span> <span class="endpoint-path">/api/cancel?task_id=X</span></h2>
+            <p>Cancel a running download task.</p>
+
+            <h3>Query Parameters</h3>
+            <table class="param-table">
+                <tr><th>Param</th><th>Type</th><th>Description</th></tr>
+                <tr><td><code>task_id</code></td><td class="type">string</td><td>Task ID to cancel</td></tr>
+            </table>
+
+            <h3>Response</h3>
+            <pre><code>{ "status": "cancelled" }</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'cancel-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'cancel-js')">JavaScript</div>
+            </div>
+            <div id="cancel-curl" class="example-content active">
+                <pre><code>curl "http://localhost:8080/api/cancel?task_id=task-1"</code></pre>
+            </div>
+            <div id="cancel-js" class="example-content">
+                <pre><code>await fetch('/api/cancel?task_id=task-1');</code></pre>
+            </div>
+        </div>
+
+        <!-- COUNT TILES -->
+        <div class="api-section" id="count">
+            <h2><span class="method method-post">POST</span> <span class="endpoint-path">/api/count</span></h2>
+            <p>Count the number of tiles within a polygon area without downloading.</p>
+
+            <h3>Request Body</h3>
+            <p>Same format as <a href="#download" style="color:#0097ee">/api/download</a>.</p>
+
+            <h3>Response</h3>
+            <pre><code>{ "count": 12345 }</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'count-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'count-js')">JavaScript</div>
+            </div>
+            <div id="count-curl" class="example-content active">
+                <pre><code>curl -X POST http://localhost:8080/api/count \
+  -H "Content-Type: application/json" \
+  -d '{
+    "polygon": [
+      {"lat": 16.05, "lng": 108.18},
+      {"lat": 16.05, "lng": 108.22},
+      {"lat": 16.02, "lng": 108.22},
+      {"lat": 16.02, "lng": 108.18}
+    ],
+    "holes": [],
+    "zoom_min": 10,
+    "zoom_max": 15
+  }'</code></pre>
+            </div>
+            <div id="count-js" class="example-content">
+                <pre><code>const resp = await fetch('/api/count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        polygon: [
+            { lat: 16.05, lng: 108.18 },
+            { lat: 16.05, lng: 108.22 },
+            { lat: 16.02, lng: 108.22 },
+            { lat: 16.02, lng: 108.18 }
+        ],
+        holes: [],
+        zoom_min: 10,
+        zoom_max: 15
+    })
+});
+const data = await resp.json();
+console.log('Tile count:', data.count);</code></pre>
+            </div>
+        </div>
+
+        <!-- LIST PROJECTS -->
+        <div class="api-section" id="drawings-list">
+            <h2><span class="method method-get">GET</span> <span class="endpoint-path">/api/drawings</span></h2>
+            <p>List all saved project names.</p>
+
+            <h3>Response</h3>
+            <pre><code>["project-1", "Da_Nang_Harbor", "test_area"]</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'dlist-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'dlist-js')">JavaScript</div>
+            </div>
+            <div id="dlist-curl" class="example-content active">
+                <pre><code>curl http://localhost:8080/api/drawings</code></pre>
+            </div>
+            <div id="dlist-js" class="example-content">
+                <pre><code>const names = await fetch('/api/drawings').then(r => r.json());
+console.log(names);</code></pre>
+            </div>
+        </div>
+
+        <!-- GET PROJECT -->
+        <div class="api-section" id="drawings-get">
+            <h2><span class="method method-get">GET</span> <span class="endpoint-path">/api/drawings?name=X</span></h2>
+            <p>Get a specific project configuration.</p>
+
+            <h3>Response</h3>
+            <pre><code>{
+    "name": "My Project",
+    "polygon": [{"lat": 16.05, "lng": 108.18}, ...],
+    "holes": [],
+    "annotations": [
+        {
+            "type": "marker",
+            "name": "Port",
+            "color": "#e94560",
+            "icon": "⚓",
+            "latlngs": {"lat": 16.05, "lng": 108.20}
+        },
+        {
+            "type": "polyline",
+            "name": "Route",
+            "color": "#3498db",
+            "latlngs": [{"lat": 16.05, "lng": 108.18}, ...]
+        }
+    ],
+    "zoom_min": 10,
+    "zoom_max": 15,
+    "map_center": {"lat": 16.04, "lng": 108.20},
+    "map_zoom": 12
+}</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'dget-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'dget-js')">JavaScript</div>
+            </div>
+            <div id="dget-curl" class="example-content active">
+                <pre><code>curl "http://localhost:8080/api/drawings?name=My%20Project"</code></pre>
+            </div>
+            <div id="dget-js" class="example-content">
+                <pre><code>const config = await fetch('/api/drawings?name=' + encodeURIComponent('My Project'))
+    .then(r => r.json());
+console.log(config);</code></pre>
+            </div>
+        </div>
+
+        <!-- SAVE PROJECT -->
+        <div class="api-section" id="drawings-save">
+            <h2><span class="method method-post">POST</span> <span class="endpoint-path">/api/drawings</span></h2>
+            <p>Save or update a project. The <code>name</code> field determines the filename.</p>
+
+            <h3>Request Body</h3>
+            <p>JSON object with a required <code>name</code> field. All other fields are stored as-is.</p>
+
+            <h3>Response</h3>
+            <pre><code>{ "status": "saved", "name": "My Project" }</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'dsave-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'dsave-js')">JavaScript</div>
+            </div>
+            <div id="dsave-curl" class="example-content active">
+                <pre><code>curl -X POST http://localhost:8080/api/drawings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Project",
+    "polygon": [
+      {"lat": 16.05, "lng": 108.18},
+      {"lat": 16.05, "lng": 108.22},
+      {"lat": 16.02, "lng": 108.18}
+    ],
+    "holes": [],
+    "annotations": [],
+    "zoom_min": 10,
+    "zoom_max": 15
+  }'</code></pre>
+            </div>
+            <div id="dsave-js" class="example-content">
+                <pre><code>await fetch('/api/drawings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        name: 'My Project',
+        polygon: [...],
+        holes: [],
+        annotations: [],
+        zoom_min: 10,
+        zoom_max: 15
+    })
+});</code></pre>
+            </div>
+        </div>
+
+        <!-- DELETE PROJECT -->
+        <div class="api-section" id="drawings-delete">
+            <h2><span class="method method-delete">DELETE</span> <span class="endpoint-path">/api/drawings?name=X</span></h2>
+            <p>Delete a saved project.</p>
+
+            <h3>Response</h3>
+            <pre><code>{ "status": "deleted" }</code></pre>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'ddel-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'ddel-js')">JavaScript</div>
+            </div>
+            <div id="ddel-curl" class="example-content active">
+                <pre><code>curl -X DELETE "http://localhost:8080/api/drawings?name=My%20Project"</code></pre>
+            </div>
+            <div id="ddel-js" class="example-content">
+                <pre><code>await fetch('/api/drawings?name=' + encodeURIComponent('My Project'), {
+    method: 'DELETE'
+});</code></pre>
+            </div>
+        </div>
+
+        <!-- TILE SIZE -->
+        <div class="api-section" id="tile-size">
+            <h2><span class="method method-get">GET</span> <span class="endpoint-path">/api/tile-size</span></h2>
+            <p>Get tile storage information (total size and file count).</p>
+
+            <h3>Response</h3>
+            <pre><code>{
+    "size": 104857600,
+    "files": 25000
+}</code></pre>
+            <table class="param-table">
+                <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+                <tr><td><code>size</code></td><td class="type">int64</td><td>Total storage size in bytes</td></tr>
+                <tr><td><code>files</code></td><td class="type">int64</td><td>Number of tile files</td></tr>
+            </table>
+
+            <h3>Examples</h3>
+            <div class="example-tabs">
+                <div class="example-tab active" onclick="showTab(this, 'ts-curl')">curl</div>
+                <div class="example-tab" onclick="showTab(this, 'ts-js')">JavaScript</div>
+            </div>
+            <div id="ts-curl" class="example-content active">
+                <pre><code>curl http://localhost:8080/api/tile-size</code></pre>
+            </div>
+            <div id="ts-js" class="example-content">
+                <pre><code>const info = await fetch('/api/tile-size').then(r => r.json());
+const mb = (info.size / 1024 / 1024).toFixed(2);
+console.log(`Storage: ${mb} MB (${info.files} files)`);</code></pre>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center text-muted small py-4 border-top" style="border-color: #1b2838 !important;">
+            &copy; 2026 Tile Server. All rights reserved.
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        function showTab(btn, contentId) {
+            const parent = btn.closest('.api-section');
+            parent.querySelectorAll('.example-tab').forEach(t => t.classList.remove('active'));
+            parent.querySelectorAll('.example-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(contentId).classList.add('active');
+        }
+
+        // Active nav link on scroll
+        const sections = document.querySelectorAll('.api-section');
+        const navLinks = document.querySelectorAll('.doc-sidebar .nav-link[href^="#"]');
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(s => {
+                if (window.scrollY >= s.offsetTop - 100) current = s.id;
+            });
+            navLinks.forEach(link => {
+                link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+            });
+        });
+    </script>
+</body>
+</html>

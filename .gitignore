@@ -1,0 +1,19 @@
+# Binary
+tile-server
+
+# Tile cache
+tiles/
+
+# User drawings
+drawings/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
