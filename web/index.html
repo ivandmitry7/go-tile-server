@@ -241,6 +241,16 @@
                                         <input type="number" id="zoomMax" class="form-control form-control-sm" value="15" min="0" max="20">
                                     </div>
                                 </div>
+                                <div class="mt-2 mb-2">
+                                    <label class="form-label small mb-1">Go to Coordinate</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" id="coordInput" class="form-control"
+                                               placeholder="lat, lng" style="background:#1b2838;color:#eee;border-color:#2a3a4e;">
+                                        <button id="btnGoCoord" class="btn btn-outline-info" type="button">
+                                            <i class="bi bi-geo-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
                                 <div class="d-flex align-items-center justify-content-between">
                                     <span id="modeBadge" class="badge badge-online">ONLINE</span>
                                     <button id="btnToggle" class="btn btn-sm btn-outline-success">
@@ -306,6 +316,9 @@
                                         <i class="bi bi-upload"></i> Import KML
                                     </button>
                                     <input type="file" id="kmlFileInput" accept=".kml" class="hidden">
+                                    <button id="btnExportPng" class="btn btn-sm btn-outline-warning">
+                                        <i class="bi bi-image"></i> Export Map PNG
+                                    </button>
                                     <hr class="my-1 border-secondary">
                                     <button id="btnExportTiles" class="btn btn-sm btn-outline-success">
                                         <i class="bi bi-file-earmark-zip"></i> Download Tiles
@@ -329,7 +342,7 @@
             <div class="px-3 py-2 border-top text-center small text-muted" style="border-color: #1b2838 !important;">
                 <a href="/doc.html" class="text-muted text-decoration-none"><i class="bi bi-book me-1"></i>API Docs</a>
                 <span class="mx-1">|</span>
-                &copy; 2026 Tile Self Server 
+                &copy; 2026 by Ivan
             </div>
         </div>
 
@@ -445,6 +458,31 @@
         document.getElementById('seamarkToggle').addEventListener('change', function() {
             if (this.checked) map.addLayer(seaMarkLayer);
             else map.removeLayer(seaMarkLayer);
+        });
+
+        // Go to coordinate
+        function goToCoordinate() {
+            const val = document.getElementById('coordInput').value.trim();
+            if (!val) return;
+            const parts = val.split(',').map(s => parseFloat(s.trim()));
+            if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+                alert('Invalid format. Use: lat, lng');
+                return;
+            }
+            const [lat, lng] = parts;
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                alert('Lat must be -90..90, Lng must be -180..180');
+                return;
+            }
+            map.flyTo([lat, lng], map.getZoom());
+            // Temporary marker
+            const tempMarker = L.marker([lat, lng]).addTo(map)
+                .bindPopup(lat.toFixed(6) + ', ' + lng.toFixed(6)).openPopup();
+            setTimeout(() => map.removeLayer(tempMarker), 5000);
+        }
+        document.getElementById('btnGoCoord').addEventListener('click', goToCoordinate);
+        document.getElementById('coordInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') goToCoordinate();
         });
 
         // Draw control
@@ -1115,6 +1153,128 @@
             reader.readAsText(file);
             this.value = '';
         });
+
+        // === Export Map PNG ===
+        function exportMapPng() {
+            const btn = document.getElementById('btnExportPng');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Rendering...';
+
+            const mapSize = map.getSize();
+            const canvas = document.createElement('canvas');
+            canvas.width = mapSize.x;
+            canvas.height = mapSize.y;
+            const ctx = canvas.getContext('2d');
+
+            const zoom = map.getZoom();
+            const bounds = map.getPixelBounds();
+            const tileSize = 256;
+            const nw = bounds.min.divideBy(tileSize).floor();
+            const se = bounds.max.divideBy(tileSize).floor();
+
+            const promises = [];
+            for (let x = nw.x; x <= se.x; x++) {
+                for (let y = nw.y; y <= se.y; y++) {
+                    const tileX = ((x % Math.pow(2, zoom)) + Math.pow(2, zoom)) % Math.pow(2, zoom);
+                    const tileY = y;
+                    if (tileY < 0 || tileY >= Math.pow(2, zoom)) continue;
+
+                    const px = x * tileSize - bounds.min.x;
+                    const py = y * tileSize - bounds.min.y;
+
+                    promises.push(new Promise(resolve => {
+                        const img = new Image();
+                        img.crossOrigin = 'anonymous';
+                        img.onload = function() { ctx.drawImage(img, px, py, tileSize, tileSize); resolve(); };
+                        img.onerror = function() { resolve(); }; // skip missing tiles
+                        // Use current visible layer URL
+                        const baseVal = document.getElementById('baseLayer').value;
+                        const layer = baseLayers[baseVal] || baseLayers['roadmap'];
+                        let url = layer._url;
+                        url = url.replace('{z}', zoom).replace('{x}', tileX).replace('{y}', tileY);
+                        if (url.includes('{s}')) url = url.replace('{s}', ['a','b','c'][tileX % 3]);
+                        img.src = url;
+                    }));
+                }
+            }
+
+            Promise.all(promises).then(() => {
+                // Draw polygon overlay
+                if (currentPolygon) {
+                    ctx.beginPath();
+                    currentPolygon.forEach((p, i) => {
+                        const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+                        if (i === 0) ctx.moveTo(pt.x, pt.y);
+                        else ctx.lineTo(pt.x, pt.y);
+                    });
+                    ctx.closePath();
+                    ctx.strokeStyle = '#0097ee';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.fillStyle = 'rgba(0, 151, 238, 0.15)';
+                    ctx.fill();
+                }
+
+                // Draw holes
+                holes.forEach(hole => {
+                    ctx.beginPath();
+                    hole.forEach((p, i) => {
+                        const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+                        if (i === 0) ctx.moveTo(pt.x, pt.y);
+                        else ctx.lineTo(pt.x, pt.y);
+                    });
+                    ctx.closePath();
+                    ctx.strokeStyle = '#e94560';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.fillStyle = 'rgba(233, 69, 96, 0.2)';
+                    ctx.fill();
+                });
+
+                // Draw annotations
+                annotations.forEach(ann => {
+                    if (ann.type === 'marker' || ann.type === 'circlemarker') {
+                        const pt = map.latLngToContainerPoint([ann.latlngs.lat, ann.latlngs.lng]);
+                        ctx.font = '24px serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(ann.icon || '📍', pt.x, pt.y);
+                        if (ann.name) {
+                            ctx.font = '12px sans-serif';
+                            ctx.fillStyle = '#fff';
+                            ctx.strokeStyle = '#000';
+                            ctx.lineWidth = 3;
+                            ctx.strokeText(ann.name, pt.x, pt.y - 20);
+                            ctx.fillText(ann.name, pt.x, pt.y - 20);
+                        }
+                    } else if (ann.type === 'polyline') {
+                        const pts = Array.isArray(ann.latlngs[0]) ? ann.latlngs.flat() : ann.latlngs;
+                        ctx.beginPath();
+                        pts.forEach((p, i) => {
+                            const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+                            if (i === 0) ctx.moveTo(pt.x, pt.y);
+                            else ctx.lineTo(pt.x, pt.y);
+                        });
+                        ctx.strokeStyle = ann.color || '#3498db';
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+                    }
+                });
+
+                // Download
+                canvas.toBlob(function(blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'map-export.png';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-image"></i> Export Map PNG';
+                }, 'image/png');
+            });
+        }
+
+        document.getElementById('btnExportPng').addEventListener('click', exportMapPng);
 
         // === Export/Import Tiles ===
         document.getElementById('btnExportTiles').addEventListener('click', function() {
